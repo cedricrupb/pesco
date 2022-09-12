@@ -1,0 +1,7 @@
+
+actor_name: klee
+toolinfo_module: "https://gitlab.com/sosy-lab/software/benchexec/-/raw/main/benchexec/tools/klee.py"
+archives:
+  - version: default
+    location: "https://gitlab.com/sosy-lab/test-comp/archives-2021/-/raw/master/2021/klee.zip"
+options: []
