@@ -1,0 +1,6 @@
+actor_name: symbiotic
+toolinfo_module: "https://gitlab.com/sosy-lab/software/benchexec/-/raw/main/benchexec/tools/symbiotic.py"
+options: ["--test-comp"]
+archives:
+  - version: default
+    location: "https://gitlab.com/sosy-lab/test-comp/archives-2022/-/raw/main/2022/symbiotic.zip"
