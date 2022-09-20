@@ -31,9 +31,11 @@ def test(tool_name : str,
 
     tool = load_tool(tool_name, version)
     logger.info(f"Init tool {tool} ...")
-    tool.init()
+    tool.init(_resolve_path(LOCAL_PATH))
 
     logger.info(f"Run {tool} on task {program_path} ...")
+    property_file = _resolve_path(property_file)
+
     result = tool.test(program_path, 
                         data_model = data_model,
                         cputime = cputime, 
@@ -56,10 +58,12 @@ def test(tool_name : str,
 # Prepare tool -------------------------------------------------------------
 
 def load_tool(tool_name_or_path, version = None):
+
     if os.path.exists(tool_name_or_path):
         return TestTool.from_yaml(tool_name_or_path, version)
 
     tool_path = os.path.join("testers", "%s.yml" % tool_name_or_path)
+    tool_path = _resolve_path(tool_path)
     if os.path.exists(tool_path):
         return TestTool.from_yaml(tool_path, version)
 
@@ -110,8 +114,9 @@ class TestTool:
         return TestTool(**config)
 
 
-    def _download_tool(self):
-        location_to_tool = os.path.join(LOCAL_PATH, self.tool_name, self.version)
+    def _download_tool(self, base_dir = None):
+        if base_dir is None: base_dir = LOCAL_PATH
+        location_to_tool = os.path.join(base_dir, self.tool_name, self.version)
         if os.path.exists(location_to_tool):
             self.location = location_to_tool
             return
@@ -142,9 +147,9 @@ class TestTool:
         self.toolinfo_module = local_path
 
 
-    def init(self):
+    def init(self, base_dir = None):
         if not os.path.exists(self.location):
-            self._download_tool()
+            self._download_tool(base_dir)
 
         if not os.path.exists(self.toolinfo_module):
             self._download_toolinfo()
@@ -255,6 +260,14 @@ def execute(cmdline):
         pass
 
     return Run(lines)
+
+# Path helper -------------------------------------------------------------
+
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+
+def _resolve_path(path):
+    if os.path.exists(path): return path
+    return os.path.join(BASE_DIR, path)
 
 # Runner -------------------------------------------------------------------
 
