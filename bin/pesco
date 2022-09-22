@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+import argparse
+import os
+from glob import glob
+
+from utils import execute
+
+def find_test_case():
+    if not os.path.exists("test-suite"): return None
+
+    xml_files = [f for f in glob("test-suite/*.xml") if not f.endswith("metadata.xml")]
+    if len(xml_files) > 1:
+        print("Multiple test cases! Which should I pick?")
+        return None
+
+    return xml_files[0]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("program_path")
+    parser.add_argument("--data_model", type = str, default = "LP64")
+    parser.add_argument("--timeout", type = int, default = 60)
+    parser.add_argument("--spec", type = str, default = "")
+    parser.add_argument("--do_validate", action = "store_true")
+    args = parser.parse_args()
+
+    executable = os.path.abspath("./ctesters/ctesters.py")
+
+    result = execute([
+        "python3", executable, "klee", args.program_path,
+        "--data_model", args.data_model,
+        "--cputime", str(args.timeout)
+    ])
+
+    test_case = find_test_case()
+    
+    if "false(unreach-call)" not in result.output or test_case is None:
+        print(result.output)
+        # Abort?
+        print("Abort.")
+        return
+    
+    executable = os.path.abspath("./test2witness/test2witness.py")
+    
+    t2w_result = execute([
+        "python3", executable, args.program_path, test_case,
+        "--machine_model", "m64" if args.data_model == "LP64" else "m32",
+        "--spec", args.spec
+    ])
+    
+    if "Success." not in t2w_result.output:
+        print(t2w_result.output)
+        print(t2w_result.err_output.decode("utf-8"))
+        return
+
+    print(result.output)
+
+
+if __name__ == "__main__":
+    main()

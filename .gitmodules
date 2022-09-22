@@ -1,0 +1,9 @@
+[submodule "ctesters"]
+	path = ctesters
+	url = git@github.com:cedricrupb/ctesters.git
+[submodule "test2witness"]
+	path = test2witness
+	url = git@github.com:cedricrupb/test2witness.git
+[submodule "cpachecker"]
+	path = cpachecker
+	url = https://gitlab.com/sosy-lab/software/cpachecker.git

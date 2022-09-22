@@ -1,0 +1,6 @@
+
+main:
+  - klee
+  - test2witness
+  - cpa-validate
+
