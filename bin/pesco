@@ -5,6 +5,12 @@ from glob import glob
 
 from utils import execute
 
+from pathlib import Path
+
+CURRENT_PATH = Path(__file__).parent.absolute()
+
+# KLEE ----------------------------------------------------------------
+
 def find_test_case():
     if not os.path.exists("test-suite"): return None
 
@@ -16,21 +22,13 @@ def find_test_case():
     return xml_files[0]
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("program_path")
-    parser.add_argument("--data_model", type = str, default = "LP64")
-    parser.add_argument("--timeout", type = int, default = 60)
-    parser.add_argument("--spec", type = str, default = "")
-    parser.add_argument("--do_validate", action = "store_true")
-    args = parser.parse_args()
-
-    executable = os.path.abspath("./ctesters/ctesters.py")
+def run_klee(program_path, spec = "", data_model = "LP64", timeout = None):
+    executable = find_library("ctesters/ctesters.py")
 
     result = execute([
-        "python3", executable, "klee", args.program_path,
-        "--data_model", args.data_model,
-        "--cputime", str(args.timeout)
+        "python3", executable, "klee", program_path,
+        "--data_model", data_model,
+        "--cputime", str(timeout)
     ])
 
     test_case = find_test_case()
@@ -39,22 +37,121 @@ def main():
         print(result.output)
         # Abort?
         print("Abort.")
-        return
+        return False
     
-    executable = os.path.abspath("./test2witness/test2witness.py")
+    executable = find_library("test2witness/test2witness.py")
     
     t2w_result = execute([
-        "python3", executable, args.program_path, test_case,
-        "--machine_model", "m64" if args.data_model == "LP64" else "m32",
-        "--spec", args.spec
+        "python3", executable, program_path, test_case,
+        "--machine_model", "m64" if data_model == "LP64" else "m32",
+        "--spec", spec
     ])
     
     if "Success." not in t2w_result.output:
         print(t2w_result.output)
         print(t2w_result.err_output.decode("utf-8"))
-        return
+        return False
 
-    print(result.output)
+    return True
+
+
+# CPAchecker -------------------------------------------------------------------
+
+def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None):
+    executable = find_library("cpachecker/bin/cpa.sh")
+
+    cpa_result = execute([
+        executable, "-svcomp22",
+        "-heap", "1000M"
+        "-benchmark",
+        "-timelimit", str(timeout)+"s",
+        "-spec", spec,
+        "-64" if data_model == "LP64" else "-32",
+        program_path
+    ])
+
+    print(cpa_result.output)
+    print(cpa_result.err_output.decode("utf-8"))
+
+
+# Main function ----------------------------------------------------------------
+
+def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None):
+    
+    # Run KLEE for 60 seconds
+    klee_successfull = run_klee(
+        program_path = program_path,
+        spec = spec,
+        data_model = data_model,
+        timeout = 60
+    )
+
+    if klee_successfull: return True
+
+    # Run CPAchecker with PESCO config afterwards
+    return run_cpachecker(
+        program_path = program_path,
+        spec = spec,
+        data_model = data_model,
+        timeout = timeout
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("program_path")
+    parser.add_argument("--data_model", type = str, default = "LP64")
+    parser.add_argument("--timeout", type = int, default = 900)
+    parser.add_argument("--spec", type = str, default = "")
+    args = parser.parse_args()
+
+    if args.spec:
+        spec = parse_specification(args.spec)
+    else:
+        spec = "REACH"
+
+    if spec == "REACH":
+        run_pesco(
+            program_path = args.program_path,
+            spec = args.spec,
+            data_model = args.data_model,
+            timeout = args.timeout
+        )
+    else:
+        run_cpachecker(
+            program_path = args.program_path,
+            spec = args.spec,
+            data_model = args.data_model,
+            timeout = args.timeout
+        )
+
+
+# Helper ----------------------------------------------------------------
+
+
+def parse_specification(spec_path):
+    if not os.path.exists(spec_path):
+        print("Cannot find specification %s. Assume reachability specification" % spec_path)
+        return "REACH"
+
+    with open(spec_path, "r") as f:
+        spec = f.read()
+
+    if spec.stript() == "CHECK( init(main()), LTL(G ! call(reach_error())) )":
+        return "REACH"
+
+    return "OTHER"
+
+
+def find_library(lib_path):
+    current_path = str(CURRENT_PATH)
+    while "pesco" in current_path:
+        target_path = os.path.join(current_path, lib_path)
+        if os.path.exists(target_path): return target_path
+        current_path = os.path.dirname(current_path)
+
+    raise ValueError("Cannot find lib %s in the current domain: %s" % (lib_path, CURRENT_PATH))
+    
 
 
 if __name__ == "__main__":
