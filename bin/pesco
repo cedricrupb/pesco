@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import sys
 from glob import glob
 
 from utils import execute
@@ -19,7 +20,7 @@ def find_test_case():
         print("Multiple test cases! Which should I pick?")
         return None
 
-    return xml_files[0]
+    return xml_files[0] if len(xml_files) > 0 else None
 
 
 def run_klee(program_path, spec = "", data_model = "LP64", timeout = None):
@@ -28,23 +29,32 @@ def run_klee(program_path, spec = "", data_model = "LP64", timeout = None):
     result = execute([
         "python3", executable, "klee", program_path,
         "--data_model", data_model,
-        "--cputime", str(timeout)
+        "--cputime", str(timeout),
+        "--property_file", spec,
     ])
 
     test_case = find_test_case()
     
     if "false(unreach-call)" not in result.output or test_case is None:
+        print(result.err_output.decode("utf-8"))
         print(result.output)
         # Abort?
         print("Abort.")
         return False
     
     executable = find_library("test2witness/test2witness.py")
+    output_path = os.path.join("output", "witness.graphml")
+
+    output_dir = os.path.dirname(output_path)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     
     t2w_result = execute([
         "python3", executable, program_path, test_case,
         "--machine_model", "m64" if data_model == "LP64" else "m32",
-        "--spec", spec
+        "--spec", spec,
+        "--producer", "PeSCo",
+        "--output", output_path,
     ])
     
     if "Success." not in t2w_result.output:
@@ -58,11 +68,11 @@ def run_klee(program_path, spec = "", data_model = "LP64", timeout = None):
 # CPAchecker -------------------------------------------------------------------
 
 def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None):
-    executable = find_library("cpachecker/bin/cpa.sh")
+    executable = find_library("cpachecker/scripts/cpa.sh")
 
     cpa_result = execute([
-        executable, "-svcomp22",
-        "-heap", "1000M"
+        executable, "-svcomp21-pesco",
+        "-heap", "1000M",
         "-benchmark",
         "-timelimit", str(timeout)+"s",
         "-spec", spec,
@@ -70,8 +80,8 @@ def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None)
         program_path
     ])
 
-    print(cpa_result.output)
     print(cpa_result.err_output.decode("utf-8"))
+    print(cpa_result.output)
 
 
 # Main function ----------------------------------------------------------------
@@ -97,13 +107,38 @@ def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None):
     )
 
 
-def main():
+def cpachecker_version():
+    executable = find_library("cpachecker/scripts/cpa.sh")
+
+    cpa_result = execute([
+        executable, "-version"
+    ])
+    
+    for line in cpa_result.output.splitlines():
+        if line.strip().startswith("CPAchecker"):
+            return line
+
+    return "CPAchecker (unknown version)"
+
+
+def print_version():
+    cpa_version = cpachecker_version()
+    print("PeSCo 2.0 [%s]"  % cpa_version)
+
+
+def main(argv = None):
+    argv = argv or sys.argv
+
+    if len(argv) > 1 and "--version" in argv:
+        print_version()
+        return
+
     parser = argparse.ArgumentParser()
     parser.add_argument("program_path")
     parser.add_argument("--data_model", type = str, default = "LP64")
     parser.add_argument("--timeout", type = int, default = 900)
     parser.add_argument("--spec", type = str, default = "")
-    args = parser.parse_args()
+    args = parser.parse_args(args = argv[1:])
 
     if args.spec:
         spec = parse_specification(args.spec)
@@ -137,7 +172,7 @@ def parse_specification(spec_path):
     with open(spec_path, "r") as f:
         spec = f.read()
 
-    if spec.stript() == "CHECK( init(main()), LTL(G ! call(reach_error())) )":
+    if spec.strip() == "CHECK( init(main()), LTL(G ! call(reach_error())) )":
         return "REACH"
 
     return "OTHER"
