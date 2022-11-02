@@ -23,7 +23,10 @@ def main(fn):
             argdef[0]    = "--%s" % name
             kwargdef["default"] = arg.default
 
-        parser.add_argument(*argdef, **kwargdef)
+        if kwargdef["type"] is bool and not kwargdef["default"]:
+            parser.add_argument(*argdef, action = "store_true")
+        else:
+            parser.add_argument(*argdef, **kwargdef)
     
     args = parser.parse_args()
     return fn(**args.__dict__)

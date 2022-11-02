@@ -7,16 +7,18 @@ import zipfile
 import importlib.util
 import sys
 
+import signal
 import subprocess
 
 from utils import main, download
 
 import benchexec.result
 from benchexec.tools.template import BaseTool2
+from benchexec.runexecutor    import RunExecutor
 
 logger = logging.getLogger(__name__)
 
-LOCAL_PATH = ".testers"
+LOCAL_PATH = os.path.join(os.path.dirname(__file__), "cache")
 
 # API method ----------------------------------------------------------------
 
@@ -26,12 +28,19 @@ def test(tool_name : str,
         data_model : str = "LP64",
         cputime : int = None,
         memory  : int = None,
-        property_file : str = "properties/coverage-error-call.prp"):
+        container : bool = False,
+        enforce_limits : bool = False,
+        property_file : str = "properties/coverage-error-call.prp",
+        tool_directory : str = None):
     """Help"""
 
     tool = load_tool(tool_name, version)
+    tool.update({"container": container, "enforce_limits": enforce_limits})
+
     logger.info(f"Init tool {tool} ...")
-    tool.init(_resolve_path(LOCAL_PATH))
+
+    tool_directory = tool_directory or LOCAL_PATH
+    tool.init(_resolve_path(tool_directory))
 
     logger.info(f"Run {tool} on task {program_path} ...")
     property_file = _resolve_path(property_file)
@@ -49,6 +58,7 @@ def test(tool_name : str,
     elif result == benchexec.result.RESULT_FALSE_REACH:
         print("Result: false(unreach-call), tester found an executable path to an error location.")
         print("Results can be found in test-suite/")
+        print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
     else:
         print(result)
     
@@ -85,6 +95,9 @@ class TestTool:
         self.cputime = None
         self.memory  = None
 
+        self.container = False
+        self.enforce_limits = False
+
         self.update(kwargs)
 
     def update(self, kwargs):
@@ -101,6 +114,7 @@ class TestTool:
 
         if version is not None:
             versions = [v for v in versions if v["version"] == version]
+            assert len(version)  >= 0, "No version with name %s is specified" % version
             assert len(versions) == 1, "Only one version with name '%s' is allowed" % version
         
         assert len(versions) > 0, "No version is specified"
@@ -145,6 +159,44 @@ class TestTool:
 
         download(self.toolinfo_module, local_path)
         self.toolinfo_module = local_path
+
+
+    def _container_exec(self, cmdline, timelimit = None, memory = None):
+        executor = RunExecutor()
+
+        def stop_run(signum, frame):
+            executor.stop()
+        
+        signal.signal(signal.SIGINT, stop_run)
+
+        output = "output.txt"
+
+        result = executor.execute_run(
+            args = cmdline,
+            output_filename = output,
+            softtimelimit = timelimit,
+            memlimit = memory
+        )
+
+        if not os.path.exists(output): return Run([])
+
+        with open(output, "r") as i:
+            result = Run(i.readlines())
+        
+        os.remove(output)
+        return result
+
+    def _execute(self, cmdline, timelimit = None, memory = None):
+        if self.container: return self._container_exec(cmdline, timelimit, memory)
+
+        if self.enforce_limits:
+            if timelimit is not None:
+                cmdline = ["timeout", f"{timelimit}s"] + cmdline
+
+            if memory is not None:
+                cmdline = ["ulimit", "-Sv", str(int(0.9 * memory / 1024)), "&&"] + cmdline
+    
+        return execute(cmdline)
 
 
     def init(self, base_dir = None):
@@ -199,7 +251,7 @@ class TestTool:
 
         logger.debug("Execute the following command: %s" % " ".join(cmdline))
 
-        run = execute(cmdline)
+        run = self._execute(cmdline, timelimit = rlimits.cputime, memory = rlimits.memory)
         result = self._tool_module_obj.determine_result(run)
         
         return result
