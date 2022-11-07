@@ -5,6 +5,7 @@ import sys
 lib_dir = os.path.join(os.path.dirname(__file__), "..", "lib", "python")
 
 sys.dont_write_bytecode = True  # prevent creation of .pyc files
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pesco")) # Add PeSCo also
 sys.path.insert(0, lib_dir)
 
 if "PYTHONPATH" not in os.environ:

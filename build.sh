@@ -52,6 +52,15 @@ download_klee_artifact() {
     python3 "lib/python/ctesters/ctesters.py" klee "dummy.c" --version "s3" --tool_directory "lib"
 }
 
+# (4) Download Clang 11 precompiled
+download_clang() {
+    pushd "lib"
+    wget "https://verifyandtest.s3.eu-west-1.amazonaws.com/clang-11.zip" || exitmsg "Cannot download clang 11"
+    unzip clang-11.zip || exitmsg "Failed during unzip"
+    rm clang-11.zip
+    popd
+}
+
 
 # Phase 1: Build CPAchecker
 echo "Build CPAchecker"
@@ -64,3 +73,6 @@ update_local_python_dependencies
 # Phase 3: Download KLEE
 echo "Download KLEE"
 download_klee_artifact
+
+echo "Download clang"
+download_clang
