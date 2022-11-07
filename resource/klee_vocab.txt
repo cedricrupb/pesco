@@ -1,0 +1,8 @@
+completed paths
+explored paths
+generated tests
+invalid queries
+query cex
+total instructions
+total queries
+valid queries
