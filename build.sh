@@ -61,6 +61,8 @@ download_clang() {
     popd
 }
 
+echo "Checkout all subdirs if not done."
+git submodule update --init --recursive || exitmsg "Please install Git if this fails"
 
 # Phase 1: Build CPAchecker
 echo "Build CPAchecker"
