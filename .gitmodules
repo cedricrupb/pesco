@@ -1,6 +1,0 @@
-[submodule "ctesters"]
-	path = ctesters
-	url = git@github.com:cedricrupb/ctesters.git
-[submodule "test2witness"]
-	path = test2witness
-	url = git@github.com:cedricrupb/test2witness.git
