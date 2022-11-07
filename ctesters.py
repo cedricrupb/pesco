@@ -58,7 +58,6 @@ def test(tool_name : str,
     elif result == benchexec.result.RESULT_FALSE_REACH:
         print("Result: false(unreach-call), tester found an executable path to an error location.")
         print("Results can be found in test-suite/")
-        print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
     else:
         print(result)
     
@@ -187,6 +186,8 @@ class TestTool:
         return result
 
     def _execute(self, cmdline, timelimit = None, memory = None):
+        if " " in cmdline[0]: cmdline[0] = cmdline[0].replace(" ", "\ ")
+        
         if self.container: return self._container_exec(cmdline, timelimit, memory)
 
         if self.enforce_limits:
@@ -195,7 +196,7 @@ class TestTool:
 
             if memory is not None:
                 cmdline = ["ulimit", "-Sv", str(int(0.9 * memory / 1024)), "&&"] + cmdline
-    
+
         return execute(cmdline)
 
 
