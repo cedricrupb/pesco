@@ -1,0 +1,9 @@
+[submodule "lib/python/ctesters"]
+	path = lib/python/ctesters
+	url = git@github.com:cedricrupb/ctesters.git
+[submodule "lib/python/test2witness"]
+	path = lib/python/test2witness
+	url = git@github.com:cedricrupb/test2witness.git
+[submodule "lib/cpachecker"]
+	path = lib/cpachecker
+	url = git@github.com:cedricrupb/cpachecker.git

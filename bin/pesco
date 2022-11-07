@@ -1,78 +1,164 @@
 #!/usr/bin/env python3
-import argparse
 import os
 import sys
-from glob import glob
 
-from utils import execute
+lib_dir = os.path.join(os.path.dirname(__file__), "..", "lib", "python")
+
+sys.dont_write_bytecode = True  # prevent creation of .pyc files
+sys.path.insert(0, lib_dir)
+
+if "PYTHONPATH" not in os.environ:
+    os.environ["PYTHONPATH"] = ""
+os.environ["PYTHONPATH"] += os.pathsep + str(
+    lib_dir
+)  # necessary so subprocesses also use libraries
+
+import argparse
+import joblib
+import numpy as np
 
 from pathlib import Path
 
 CURRENT_PATH = Path(__file__).parent.absolute()
 
-# KLEE ----------------------------------------------------------------
+from pesco.tester import klee
+from pesco.utils  import execute
 
-def find_test_case():
-    if not os.path.exists("test-suite"): return None
+from pesco.data import clang_to_traversal, traversal_to_counts, counts_to_vector
 
-    xml_files = [f for f in glob("test-suite/*.xml") if not f.endswith("metadata.xml")]
-    if len(xml_files) > 1:
-        print("Multiple test cases! Which should I pick?")
-        return None
+def find_library(lib_path):
+    current_path = str(CURRENT_PATH)
+    while "pesco" in current_path:
+        target_path = os.path.join(current_path, lib_path)
+        if os.path.exists(target_path): return target_path
+        current_path = os.path.dirname(current_path)
 
-    return xml_files[0] if len(xml_files) > 0 else None
+    raise ValueError("Cannot find lib %s in the current domain: %s" % (lib_path, CURRENT_PATH))
+
+CPA_CONFIGS = {
+    "symbolic": "pesco23-symex",
+    "va"      : "pesco23-va",
+    "vaitp"   : "pesco23-va-itp",
+    "ki"      : "pesco23-ki",
+    "pa"      : "pesco23-pa",
+    "bmc"     : "pesco23-bmc",
+    "bam"     : "pesco23-bam",
+}
 
 
-def run_klee(program_path, spec = "", data_model = "LP64", timeout = None):
-    executable = find_library("ctesters/ctesters.py")
+# Algorithm selection ---------------------------------------------------------
 
-    result = execute([
-        "python3", executable, "klee", program_path,
-        "--data_model", data_model,
-        "--cputime", str(timeout),
-        "--property_file", spec,
-    ])
-
-    test_case = find_test_case()
+def extract_features_from_program(program_path):
     
-    if "false(unreach-call)" not in result.output or test_case is None:
-        print(result.err_output.decode("utf-8"))
-        print(result.output)
-        # Abort?
-        print("Abort.")
-        return False
-    
-    executable = find_library("test2witness/test2witness.py")
-    output_path = os.path.join("output", "witness.graphml")
+    # Use clang for feature extraction
+    try:
+        clang_executable = find_library(os.path.join("lib", "clang", "clang"))
+    except ValueError:
+        clang_executable = None
 
-    output_dir = os.path.dirname(output_path)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    t2w_result = execute([
-        "python3", executable, program_path, test_case,
-        "--machine_model", "m64" if data_model == "LP64" else "m32",
-        "--spec", spec,
-        "--producer", "PeSCo",
-        "--output", output_path,
-    ])
-    
-    if "Success." not in t2w_result.output:
-        print(t2w_result.output)
-        print(t2w_result.err_output.decode("utf-8"))
-        return False
+    # Load vocabulary
+    vocab_path = find_library(os.path.join("resource", "vocab.txt"))
+    vocab = {}
+    with open(vocab_path, "r") as lines:
+        for i, line in enumerate(lines):
+            vocab[line.strip()] = i
 
-    return True
+    # Parse file
+    traversal = clang_to_traversal(program_path, 2, clang_executable = clang_executable)
+    counts    = traversal_to_counts(traversal)
+    vector    = counts_to_vector(counts, vocab)
+
+    return np.array(vector)
+
+
+def extract_features_from_klee(file_path):
+    # Load vocabulary
+    vocab_path = find_library(os.path.join("resource", "klee_vocab.txt"))
+    vocab = {}
+    with open(vocab_path, "r") as lines:
+        for i, line in enumerate(lines):
+            vocab[line.strip()] = i
+
+    features = [0] * len(vocab)
+    with open(file_path, "r") as lines:
+        for line in lines:
+            if not line.startswith("KLEE: done:"): continue
+            line = line[11:].strip()
+            feature_name, count = line.split(" = ")
+            
+            if feature_name in vocab:
+                feature_index = vocab[feature_name]
+                features[feature_index] = int(count)
+
+    return np.array(features)
+
+
+def load_selector(selector_path):
+    return joblib.load(selector_path)
+
+
+def map_selection_to_config(selection):
+    if selection in CPA_CONFIGS:
+        return CPA_CONFIGS[selection]
+
+    print("Unknown selection: %s" % str(selection))
+    return "svcomp21-pesco"
+
+
+def select_config(program_path):
+    
+    # Extract features
+    features = extract_features_from_program(program_path)
+    print(f"Extracted {features.shape[0]} features...")
+
+    try:
+        klee_output = os.path.join("test-suite", "info")
+        dynamic_features = extract_features_from_klee(klee_output)
+        dynamic_features = np.log10(1 + dynamic_features)
+        features = np.concatenate([features, dynamic_features])
+        print("Successfully extracted dynamic KLEE features.")
+    except ValueError:
+        dynamic_features = None
+
+    features = np.expand_dims(features, axis = 0)
+
+    # Load selector
+    if dynamic_features is not None:
+        selector_path = find_library(os.path.join("resource", "klee_selector.jbl"))
+    else:
+        selector_path = find_library(os.path.join("resource", "base_selector.jbl"))
+
+    selector = load_selector(selector_path)
+    selection = selector.predict(features)
+
+    print("Selected config: %s" % str(selection[0]))
+
+    return map_selection_to_config(selection[0])
 
 
 # CPAchecker -------------------------------------------------------------------
 
-def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None):
-    executable = find_library("cpachecker/scripts/cpa.sh")
+def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None, memory = None, config = "svcomp21-pesco"):
+    print("Execute CPAchecker with config \"%s\"." % config)
 
+    executable = find_library("lib/cpachecker/scripts/cpa.sh")
+
+    if memory:
+        memory = "%dM" % max(100, int(memory) // 1024 // 1024)
+    else:
+        memory = "1000M"
+
+    if config is None:
+        config = "-svcomp21-pesco"
+
+    if config.endswith(".properties") and os.path.exists(config):
+        config = f"-config {config}"
+    elif not config.startswith("-"):
+        config = f"-{config}"
+    
     cpa_result = execute([
-        executable, "-svcomp21-pesco",
-        "-heap", "1000M",
+        executable, config,
+        "-heap", memory,
         "-benchmark",
         "-timelimit", str(timeout)+"s",
         "-spec", spec,
@@ -80,35 +166,47 @@ def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None)
         program_path
     ])
 
-    print(cpa_result.err_output.decode("utf-8"))
+    error = cpa_result.err_output.decode("utf-8")
+
+    if "Invalid option -" in error:
+        return run_cpachecker(program_path, spec, data_model, timeout, config = "svcomp23")
+
+    print(error)
     print(cpa_result.output)
 
 
 # Main function ----------------------------------------------------------------
 
-def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None):
-    
-    # Run KLEE for 60 seconds
-    klee_successfull = run_klee(
-        program_path = program_path,
-        spec = spec,
-        data_model = data_model,
-        timeout = 60
+def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memory = None):
+
+    klee_successfull = klee(
+        program_path  = program_path,
+        property_file = spec,
+        data_model    = data_model,
+        cputime       = 60, 
+        memory        = memory,
+        witness       = True
     )
 
-    if klee_successfull: return True
+    if klee_successfull: 
+        print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
+        return True
+
+    config = select_config(program_path)
 
     # Run CPAchecker with PESCO config afterwards
     return run_cpachecker(
         program_path = program_path,
         spec = spec,
         data_model = data_model,
-        timeout = timeout
+        timeout = timeout,
+        memory  = memory,
+        config  = config
     )
 
 
 def cpachecker_version():
-    executable = find_library("cpachecker/scripts/cpa.sh")
+    executable = find_library("lib/cpachecker/scripts/cpa.sh")
 
     cpa_result = execute([
         executable, "-version"
@@ -136,28 +234,35 @@ def main(argv = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("program_path")
     parser.add_argument("--data_model", type = str, default = "LP64")
-    parser.add_argument("--timeout", type = int, default = 900)
+    parser.add_argument("--timelimit", type = int, default = 900)
+    parser.add_argument("--memory", type = str, default = None)
     parser.add_argument("--spec", type = str, default = "")
     args = parser.parse_args(args = argv[1:])
 
-    if args.spec:
-        spec = parse_specification(args.spec)
-    else:
-        spec = "REACH"
+    if not args.spec:
+        args.spec = find_library(os.path.join("properties", "sv-comp-reachability.prp"))
+
+    if args.memory:
+        args.memory = parse_memory(args.memory)
+    
+    spec = parse_specification(args.spec)
 
     if spec == "REACH":
         run_pesco(
             program_path = args.program_path,
             spec = args.spec,
             data_model = args.data_model,
-            timeout = args.timeout
+            timeout = args.timelimit,
+            memory  = args.memory
         )
     else:
         run_cpachecker(
             program_path = args.program_path,
             spec = args.spec,
             data_model = args.data_model,
-            timeout = args.timeout
+            timeout = args.timelimit,
+            memory  = args.memory,
+            config = "svcomp23"
         )
 
 
@@ -178,15 +283,19 @@ def parse_specification(spec_path):
     return "OTHER"
 
 
-def find_library(lib_path):
-    current_path = str(CURRENT_PATH)
-    while "pesco" in current_path:
-        target_path = os.path.join(current_path, lib_path)
-        if os.path.exists(target_path): return target_path
-        current_path = os.path.dirname(current_path)
+def parse_memory(memory):
+    factor = 1
+    if memory.endswith("K"): factor = 1024
+    if memory.endswith("M"): factor = 1024 ** 2
+    if memory.endswith("G"): factor = 1024 ** 3
 
-    raise ValueError("Cannot find lib %s in the current domain: %s" % (lib_path, CURRENT_PATH))
-    
+    if factor != 1: memory = memory[:-1]
+
+    try:
+        return factor * int(memory)
+    except Exception:
+        print("Cannot parse %s. Use 100M instead." % memory)
+        return 100 * (1024 ** 2)
 
 
 if __name__ == "__main__":

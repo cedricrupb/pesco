@@ -1,0 +1,8 @@
+@@ -27,6 +27,7 @@
+     <property name="class.dir" value="bin"/>
+     <!-- <property name="errorprone.disable" value=""/> --> <!-- Disable error-prone completely. -->
+     <property name="errorprone.options" value=""/>
++    <property name="compile.warn" value=""/>
+ 
+     <path id="processorpath">
+         <fileset dir="${ivy.lib.dir}" includes="build/*.jar"/>

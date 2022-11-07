@@ -1,6 +1,6 @@
 import json
 
-from .utils import _path_to_task_id
+from .data.utils import _path_to_task_id
 
 
 def load_evaluator_from_file(file_path):

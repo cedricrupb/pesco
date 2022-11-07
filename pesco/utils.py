@@ -8,6 +8,14 @@ ExecutionResult = namedtuple("ExecutionResult", ["returncode", "output", "err_ou
 
 def execute(command, timelimit=None):
     def shut_down(process):
+
+        # First print all outputs
+        for line in process.stdout:
+            print(line.decode("utf-8"))
+        
+        for line in process.stderr:
+            print(line.decode("utf-8"))
+
         process.kill()
         return process.wait()
 
@@ -39,7 +47,6 @@ def execute(command, timelimit=None):
             logging.debug("Shutdown with CTRL-C. Killing process.")
             returncode = shut_down(process)
             got_aborted = True
-            if output: print(output)
             raise
 
     wall_time = time.perf_counter() - wall_time_start

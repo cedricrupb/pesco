@@ -131,7 +131,8 @@ class PAR10BucketSelector:
 
         for model in self.models_:
             prediction = model.predict_proba(X)
-            prediction = (prediction * weight).sum(axis = 1)
+            pweight    = weight[model.classes_]
+            prediction = (prediction * pweight).sum(axis = 1)
             predictions.append(prediction)
 
         predictions = np.stack(predictions).transpose()
@@ -357,7 +358,7 @@ class PAR10BucketSelectorConstructor:
         self.models_      = []
 
     def build(self):
-        model = PAR10BucketSelector(self.C)
+        model = PAR10BucketSelector(self.C, max_iter = 10_000)
         model.models_ = self.models_
         return model
 
@@ -376,3 +377,39 @@ class PAR10BucketSelectorConstructor:
         clf    =  LogisticRegression(C = self.C)
         clf.fit(self.X, y)
         self.models_.append(clf)
+
+
+# Selector pipeline ----------------------------------------------
+
+class SelectorPipeline:
+
+    def __init__(self, model, label_index, preprocessor = None):
+        self.model        = model
+        self.label_index  = label_index
+        self.preprocessor = preprocessor
+
+    def _prediction_to_label(self, prediction):
+        label_index = self.label_index
+
+        try:
+            return label_index[prediction]
+        except TypeError:
+            pass
+
+        name_and_times = []
+        for pred in prediction:
+            if isinstance(pred, int):
+                pred = (pred, 900)
+            name_and_times.append((label_index[pred[0]], pred[1]))
+        
+        return ",".join(f"{p[0]}:{p[1]}" for p in name_and_times)
+
+    def predict(self, features):
+        
+        if self.preprocessor is not None:
+            features = self.preprocessor.transform(features)
+        
+        prediction = self.model.predict(features)
+
+        return list(map(self._prediction_to_label, prediction))
+

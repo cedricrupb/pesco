@@ -120,11 +120,14 @@ def read_stdout(process):
             yield line
 
 
-def _run_clang_ast(path_to_file):
-    _check_clang()
+def _run_clang_ast(path_to_file, clang_executable = None):
+    
+    if clang_executable is None:
+        _check_clang()
+        clang_executable = 'clang'
 
     cmd = [
-        'clang', '-cc1', '-Wno-everything', '-ast-dump', path_to_file
+        clang_executable, '-cc1', '-Wno-everything', '-ast-dump', path_to_file
     ]
 
     p = sp.Popen(cmd, stdout=sp.PIPE,  universal_newlines=True)
@@ -361,10 +364,10 @@ def _traverse_clang_out(cout, truncate_level=0):
         yield parent, pid, 'ast', child[0], cid, child[1]
 
 
-def clang_to_traversal(file_path, truncate_level=0):
+def clang_to_traversal(file_path, truncate_level=0, clang_executable = None):
 
     start_time = time()
-    cout = _run_clang_ast(file_path)
+    cout = _run_clang_ast(file_path, clang_executable=clang_executable)
 
     print("CLANG Runtime: %d" % (time() - start_time ))
 
