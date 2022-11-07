@@ -118,7 +118,7 @@ def select_config(program_path):
         dynamic_features = np.log10(1 + dynamic_features)
         features = np.concatenate([features, dynamic_features])
         print("Successfully extracted dynamic KLEE features.")
-    except ValueError:
+    except (ValueError, FileNotFoundError):
         dynamic_features = None
 
     features = np.expand_dims(features, axis = 0)
