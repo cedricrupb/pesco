@@ -130,3 +130,6 @@ dmypy.json
 test-suite/
 .DS_Store
 *.graphml
+
+lib/cpachecker
+lib/klee
