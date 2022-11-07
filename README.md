@@ -15,10 +15,28 @@ solve the task. If a configuration is identified, PeSCo executes the configurati
 
 Executing PeSCo on a new task can be done as follows:
 ````
-scripts/pesco [ -spec <SPEC_FILE> ] <SOURCE_FILE>
+scripts/pesco [ --spec <SPEC_FILE> ] <SOURCE_FILE>
 ````
 Here, a specification file needs to be given. Note that PeSCo unfolds its full 
 potential only for reachability specifications. 
+
+Building PeSCo from Sources
+----------------------------
+For building PeSCo from source, you must first clone the repository:
+````
+git clone https://github.com/cedricrupb/pesco
+````
+Then, run the `build.sh` script to compile PeSCo:
+````
+cd pesco
+./build.sh
+````
+The script will download all necessary libraries and
+build them (found under `lib`).
+Note that some components are prebuild (and not compiled from scratch).
+Therefore, PeSCo will mostly work on Ubuntu / Linux Systems for which PeSCo is compiled.
+
+After the build process, the repository should be self-contained.
 
 License and Copyright
 ---------------------
