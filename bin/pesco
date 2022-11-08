@@ -180,7 +180,7 @@ def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None,
 
 def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memory = None):
 
-    klee_successfull = klee(
+    klee_result = klee(
         program_path  = program_path,
         property_file = spec,
         data_model    = data_model,
@@ -189,7 +189,7 @@ def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memo
         witness       = True
     )
 
-    if klee_successfull: 
+    if klee_result.status == "false": 
         print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
         return True
 

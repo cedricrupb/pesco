@@ -1,6 +1,6 @@
 import os
-import shutil
 from glob import glob
+from collections import namedtuple
 
 from .utils import execute, resolve_path
 
@@ -15,6 +15,8 @@ def find_test_case():
 
     return xml_files[0] if len(xml_files) > 0 else None
 
+
+TestResult = namedtuple("TestResult", ["status", "result_file", "output", "err_output", "got_aborted", "wall_time"])
 
 
 class Tester:
@@ -67,13 +69,24 @@ class Tester:
 
         print(t2w_result.output)
 
-        return output_path
+        return TestResult("false", output_path, *t2w_result[1:])
+
+    def _clean_output(self, output):
+        if "Error:" in output:
+            output = output.replace("Error:", f"{self.tool_name}-ERROR:")
+
+        return output
 
     def _abort(self, result):
-        print(result.err_output.decode("utf-8"))
-        print(result.output)
+        print(self._clean_output(result.err_output.decode("utf-8")))
+        print(self._clean_output(result.output))
         print("Abort.")
-        return False
+
+        status = "UNKOWN"
+        if "Result: DONE" in result.output:
+            status = "done" 
+
+        return TestResult(status, None, *result[1:])
 
     def __call__(self, program_path, data_model = "LP64", cputime = None, memory = None, property_file = None, witness = False):
         ctester_executable = resolve_path("lib", "python", "ctesters", "ctesters.py")
@@ -97,7 +110,7 @@ class Tester:
         print(result.output)
         
         witness = witness or self.witness
-        if not witness : return test_case
+        if not witness : return TestResult("false", test_case, *result[1:])
 
         return self._gen_witness(
             program_path,
