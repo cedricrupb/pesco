@@ -149,20 +149,15 @@ def compute_optimal_permutation(schedule, solve_labels, runtimes, max_runtime):
     return OptimalSolver(sequence, unsolved, wall_time)
 
 
-# Portfolio Boosting -------------------------------
+# Selection Boosting -------------------------------
 def _default_optimizer(y, runtimes, penalty = None):
     return optimize_portfolio(y, runtimes, penalty).portfolio
 
+class SelectionBoosting:
 
-class PortfolioBoosting:
-
-    def __init__(self, selector_constructor, optimizer = None, weight = 9000, max_iter = 20, delta = 0.9, n_solver = -1, add_base = False):
+    def __init__(self, selector_constructor, optimizer = None, add_base = False):
         self.selector_constructor = selector_constructor
         self.optimizer = optimizer if optimizer is not None else _default_optimizer
-        self.weight = weight
-        self.max_iter = max_iter
-        self.delta = delta
-        self.n_solver = n_solver
         self.add_base = add_base
 
         self._tools = []
@@ -188,8 +183,40 @@ class PortfolioBoosting:
 
         return eval_results, eval_runtimes
 
+    def score(self, selection, y, runtimes):
+        labels = [self._evaluate(t, y, runtimes)[0] for t in self._tools]
+        labels = np.stack(labels).transpose()
+        return labels[np.arange(labels.shape[0]), selection].mean()
 
+    def predict(self, X, return_scores = False):
+        assert self._selector is not None
+        selection, scores = self._selector.predict(X, return_scores = True)
+        selection = [self._tools[i] for i in selection]
+        result = (selection,)
+
+        if return_scores:
+            result += (scores,)
+
+        if len(result) == 1: return result[0]
+        return result
+    
     def fit(self, X, y, runtimes):
+        raise NotImplementedError()
+
+
+# Portfolio Boosting -------------------------------
+
+class PortfolioBoosting(SelectionBoosting):
+
+    def __init__(self, selector_constructor, optimizer = None, weight = 9000, max_iter = 20, delta = 0.9, n_solver = -1, add_base = False):
+        super().__init__(selector_constructor, optimizer = optimizer, add_base = add_base)
+        
+        self.weight = weight
+        self.max_iter = max_iter
+        self.delta = delta
+        self.n_solver = n_solver
+
+    def fit(self, X, y, runtimes, sample_weight = None):
         constructor = self.selector_constructor(X)
 
         weight = (y * runtimes) + ((1 - y) * self.weight)
@@ -247,50 +274,19 @@ class PortfolioBoosting:
 
         self._selector = constructor.build()
 
-    def predict(self, X, return_scores = False):
-        assert self._selector is not None
-        selection = self._selector.predict(X)
-        return [self._tools[i] for i in selection]
-
-
 # K-means cluster ------------
 
 from sklearn.cluster import KMeans
 
-class KMeansBoosting:
+
+class KMeansBoosting(SelectionBoosting):
 
     def __init__(self, selector_constructor, optimizer = None, k = 4, weight = 9000, add_base = False):
-        self.selector_constructor = selector_constructor
-        self.optimizer = optimizer if optimizer is not None else _default_optimizer
+        super().__init__(selector_constructor, optimizer = optimizer, add_base = add_base)
         self.k = k
         self.weight = weight
-        self.add_base = add_base
 
-        self._tools = []
-        self._selector = None
-
-    def _evaluate(self, candidate, y, runtimes):
-        if isinstance(candidate, int):
-            candidate = [(candidate, 900)]
-
-        eval_results   = np.zeros((y.shape[0],))
-        eval_runtimes  = np.zeros((y.shape[0],)) 
-
-        running = np.ones((y.shape[0],))
-        for tool, timelimit in candidate:
-            labels, truntimes = y[:, tool], runtimes[:, tool]
-            timemask = np.clip(timelimit - truntimes + 1, 0, 1).astype(int)
-
-            cruntimes = timemask * truntimes + (1 - timemask) * timelimit
-
-            eval_results  = (1 - running) * eval_results + running * timemask * labels
-            eval_runtimes = (1 - running) * eval_runtimes + running * (eval_runtimes + cruntimes)
-            running -= running * timemask
-
-        return eval_results, eval_runtimes
-
-
-    def fit(self, X, y, runtimes):
+    def fit(self, X, y, runtimes, sample_weight = None):
         constructor = self.selector_constructor(X)
 
         cluster_assign = KMeans(n_clusters = self.k).fit_predict(X)
@@ -304,7 +300,12 @@ class KMeansBoosting:
             candidate_results, candidate_runtimes = self._evaluate(candidate, y, runtimes)
            
             self._tools.append(candidate)
-            constructor.add(candidate_results, candidate_runtimes)
+
+            cluster_sample_weight = None
+            if sample_weight is not None:
+                cluster_sample_weight = sample_weight[index]
+                
+            constructor.add(candidate_results, candidate_runtimes, sample_weight = cluster_sample_weight)
 
         if self.add_base:
             for i in range(y.shape[1]):
@@ -313,7 +314,25 @@ class KMeansBoosting:
 
         self._selector = constructor.build()
 
-    def predict(self, X, return_scores = False):
-        assert self._selector is not None
-        selection = self._selector.predict(X)
-        return [self._tools[i] for i in selection]
+
+# Static boosting --------------------------------------------------------------------
+
+class StaticBoosting(SelectionBoosting):
+
+    def __init__(self, selector_constructor, candidates, optimizer = None, add_base = False):
+        super().__init__(selector_constructor, optimizer = optimizer, add_base = add_base)
+        self._tools = candidates
+
+    def fit(self, X, y, runtimes, sample_weight = None):
+        constructor = self.selector_constructor(X)
+
+        for candidate in self._tools:
+            candidate_results, candidate_runtimes = self._evaluate(candidate, y, runtimes)
+            constructor.add(candidate_results, candidate_runtimes, sample_weight = sample_weight)
+
+        if self.add_base:
+            for i in range(y.shape[1]):
+                self._tools.append([(i, 900)])
+                constructor.add(y[:, i], runtimes[:, i])
+
+        self._selector = constructor.build()

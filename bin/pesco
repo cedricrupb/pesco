@@ -14,7 +14,9 @@ os.environ["PYTHONPATH"] += os.pathsep + str(
     lib_dir
 )  # necessary so subprocesses also use libraries
 
+import json
 import argparse
+import traceback
 import joblib
 import numpy as np
 
@@ -23,6 +25,7 @@ from pathlib import Path
 CURRENT_PATH = Path(__file__).parent.absolute()
 
 from pesco.tester import klee
+from pesco.cpachecker import generate_cpa_config
 from pesco.utils  import execute
 
 from pesco.data import clang_to_traversal, traversal_to_counts, counts_to_vector
@@ -35,16 +38,6 @@ def find_library(lib_path):
         current_path = os.path.dirname(current_path)
 
     raise ValueError("Cannot find lib %s in the current domain: %s" % (lib_path, CURRENT_PATH))
-
-CPA_CONFIGS = {
-    "symbolic": "pesco23-symex",
-    "va"      : "pesco23-va",
-    "vaitp"   : "pesco23-va-itp",
-    "ki"      : "pesco23-ki",
-    "pa"      : "pesco23-pa",
-    "bmc"     : "pesco23-bmc",
-    "bam"     : "pesco23-bam",
-}
 
 
 # Algorithm selection ---------------------------------------------------------
@@ -98,24 +91,61 @@ def load_selector(selector_path):
     return joblib.load(selector_path)
 
 
+def save_prediction(selector, scores, file_path, features = None):
+    output = {}
+    for i, score in enumerate(scores):
+        try:
+            p = selector._tools[i]
+        except KeyError:
+            p = i
+        p = selector._prediction_to_label(p)
+        output[p] = score
+
+    if features is not None:
+        output["features"] = features.tolist()
+    
+    with open(file_path, "w") as o:
+        json.dump(output, o, indent = 4)
+
+
+def map_prediction(selector, mapping, scores):
+    results = {}
+    for i, score in enumerate(scores):
+        try:
+            p = selector._tools[i]
+        except KeyError:
+            p = i
+        p = selector._prediction_to_label(p)
+        results[p] = score
+    
+    for key, value in mapping.items():
+        if value == "passthrough": results[key] = 9000
+    
+    selection = min(results.items(), key = lambda x: x[1])[0]
+    assert selection in mapping
+
+    return mapping[selection]
+
+
 def map_selection_to_config(selection):
-    if selection in CPA_CONFIGS:
-        return CPA_CONFIGS[selection]
+    try:
+        return generate_cpa_config(selection)
+    except Exception as e:
+        print("Unknown selection: %s" % str(selection))
+        raise e
 
-    print("Unknown selection: %s" % str(selection))
-    return "svcomp21-pesco"
 
-
-def select_config(program_path):
+def select_config(program_path, klee_result = None, predict = None):
     
     # Extract features
     features = extract_features_from_program(program_path)
     print(f"Extracted {features.shape[0]} features...")
 
     try:
+        if klee_result is None: raise ValueError()
         klee_output = os.path.join("test-suite", "info")
         dynamic_features = extract_features_from_klee(klee_output)
-        dynamic_features = np.log10(1 + dynamic_features)
+        dynamic_features = np.floor(np.log10(1 + dynamic_features))
         features = np.concatenate([features, dynamic_features])
         print("Successfully extracted dynamic KLEE features.")
     except (ValueError, FileNotFoundError):
@@ -123,18 +153,57 @@ def select_config(program_path):
 
     features = np.expand_dims(features, axis = 0)
 
+    selector_path = None
+
     # Load selector
     if dynamic_features is not None:
-        selector_path = find_library(os.path.join("resource", "klee_selector.jbl"))
+
+        if "Result: false(unreach-call)" in klee_result.output:
+            try:
+                selector_path = find_library(os.path.join("resource", "klee_selector_fail.jbl"))
+            except ValueError:
+                selector_path = None
+
+        if selector_path is None and klee_result.status == "done" and "ctrl-c" not in klee_result.output:
+            try:
+                selector_path = find_library(os.path.join("resource", "klee_selector_done.jbl"))
+            except ValueError:
+                selector_path = None
+        
+        if selector_path is None:
+            selector_path = find_library(os.path.join("resource", "klee_selector.jbl"))
+        
+        selector = load_selector(selector_path)
+
+        #try:
+        #    ensemble_path = find_library(os.path.join("resource", "klee_base_selector.jbl"))
+        #    ensemble_model = load_selector(ensemble_path)
+        #    selector = EnsembleModel([selector, ensemble_model])
+        #except ValueError:
+        #    pass
+        
     else:
         selector_path = find_library(os.path.join("resource", "base_selector.jbl"))
+        selector = load_selector(selector_path)
 
-    selector = load_selector(selector_path)
-    selection = selector.predict(features)
+    selection, confidence, scores = selector.predict(features, return_confidence = True, return_scores = True)
+    selection, confidence, scores = selection[0], confidence[0], scores[0]
 
-    print("Selected config: %s" % str(selection[0]))
+    try:
+        mapping_path = find_library(os.path.join("resource", "mapping.json"))
+        with open(mapping_path, "r") as i:
+            mapping = json.load(i)
+        selection = map_prediction(selector, mapping, scores)
+    except AssertionError:
+        print(f"PESCO ERROR Mapping of {selection} is not supported.")
+    except ValueError:
+        pass
 
-    return map_selection_to_config(selection[0])
+    if predict is not None:
+        save_prediction(selector, scores, predict, features = features[0])
+    
+    print(f"Selected config: {selection} (confidence: {(confidence * 100):.2f}%)")
+    return map_selection_to_config(selection)
 
 
 # CPAchecker -------------------------------------------------------------------
@@ -178,7 +247,7 @@ def run_cpachecker(program_path, spec = "", data_model = "LP64", timeout = None,
 
 # Main function ----------------------------------------------------------------
 
-def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memory = None):
+def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memory = None, predict = None):
 
     klee_result = klee(
         program_path  = program_path,
@@ -192,8 +261,12 @@ def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memo
     if klee_result.status == "false": 
         print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
         return True
+    
+    if predict:
+        select_config(program_path, klee_result = klee_result, predict = predict)
+        return True
 
-    config = select_config(program_path)
+    config = select_config(program_path, klee_result = klee_result)
 
     # Run CPAchecker with PESCO config afterwards
     return run_cpachecker(
@@ -225,7 +298,7 @@ def print_version():
     print("PeSCo 2.0 [%s]"  % cpa_version)
 
 
-def main(argv = None):
+def _main(argv = None):
     argv = argv or sys.argv
 
     if len(argv) > 1 and "--version" in argv:
@@ -238,6 +311,7 @@ def main(argv = None):
     parser.add_argument("--timelimit", type = int, default = 900)
     parser.add_argument("--memory", type = str, default = None)
     parser.add_argument("--spec", type = str, default = "")
+    parser.add_argument("--predict", type = str, default = None)
     args = parser.parse_args(args = argv[1:])
 
     if not args.spec:
@@ -248,13 +322,17 @@ def main(argv = None):
     
     spec = parse_specification(args.spec)
 
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
     if spec == "REACH":
         run_pesco(
             program_path = args.program_path,
             spec = args.spec,
             data_model = args.data_model,
             timeout = args.timelimit,
-            memory  = args.memory
+            memory  = args.memory,
+            predict = args.predict,
         )
     else:
         run_cpachecker(
@@ -266,6 +344,14 @@ def main(argv = None):
             config = "svcomp23"
         )
 
+
+def main(argv = None):
+    try:
+        _main(argv)
+    except KeyboardInterrupt:
+        print("CTRL-C detected. Abort.", flush = True)
+    finally:
+        print("Finished.", flush = True)
 
 # Helper ----------------------------------------------------------------
 

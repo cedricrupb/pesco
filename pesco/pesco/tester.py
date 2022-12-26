@@ -21,6 +21,8 @@ TestResult = namedtuple("TestResult", ["status", "result_file", "output", "err_o
 
 class Tester:
 
+    UNSUPPORTED_FUNCTIONS = {"fesetround"}
+
     def __init__(self, tool_name, version = None, witness = False):
         self.tool_name = tool_name
         self.version   = version
@@ -46,7 +48,7 @@ class Tester:
 
         return cmd
 
-    def _gen_witness(self, program_path, test_case, data_model = "LP64", property_file = None):
+    def _gen_witness(self, program_path, test_case, data_model = "LP64", property_file = None, memory = None):
         executable = resolve_path("lib", "python", "test2witness", "test2witness.py")
         output_path = os.path.join("output", "witness.graphml")
 
@@ -57,13 +59,17 @@ class Tester:
         if property_file is None:
             property_file = resolve_path("properties", "sv-comp-reachability.prp")
         
-        t2w_result = execute([
+        cmdline = [
             "python3", executable, program_path, test_case,
             "--machine_model", "m64" if data_model == "LP64" else "m32",
             "--spec", property_file,
             "--producer", self.tool_name,
             "--output", output_path,
-        ])
+        ]
+
+        if memory is not None: cmdline += ["--memory", str(memory)]
+
+        t2w_result = execute(cmdline)
 
         if "Success." not in t2w_result.output: return self._abort(t2w_result)
 
@@ -71,9 +77,23 @@ class Tester:
 
         return TestResult("false", output_path, *t2w_result[1:])
 
+    def _is_sound(self, test_result):
+        if self.tool_name != "klee": return True # We naturally assume that all testers are sound
+
+        for unsupported_function in self.UNSUPPORTED_FUNCTIONS:
+            if f"KLEE: WARNING: undefined reference to function: {unsupported_function}" in test_result.output:
+                print(f"Unsupported function '{unsupported_function}' detected. Abort.")
+                return False
+
+        return True
+
+
     def _clean_output(self, output):
         if "Error:" in output:
             output = output.replace("Error:", f"{self.tool_name}-ERROR:")
+
+        if "std::bad_alloc" in output:
+            output = output.replace("std::bad_alloc", "std::KLEE_bad_alloc")
 
         return output
 
@@ -106,9 +126,10 @@ class Tester:
 
         test_case = find_test_case()
         if test_case is None: return self._abort(result)
-
-        print(result.output)
+        if not self._is_sound(result): return self._abort(result)
         
+        print(result.output)
+
         witness = witness or self.witness
         if not witness : return TestResult("false", test_case, *result[1:])
 
@@ -116,7 +137,8 @@ class Tester:
             program_path,
             test_case,
             data_model = data_model,
-            property_file = property_file
+            property_file = property_file,
+            memory = memory
         )
        
     

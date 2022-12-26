@@ -6,7 +6,7 @@ from collections import namedtuple
 
 ExecutionResult = namedtuple("ExecutionResult", ["returncode", "output", "err_output", "got_aborted", "wall_time"])
 
-def execute(command, timelimit=None):
+def execute(command, timelimit=None, shell = False):
     def shut_down(process):
 
         # First print all outputs
@@ -28,6 +28,7 @@ def execute(command, timelimit=None):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         universal_newlines=False,
+        shell = shell
     ) as process:
 
         output = None

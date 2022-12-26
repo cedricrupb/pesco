@@ -1,0 +1,8 @@
+{
+    "bmc": "vaitp:60,symbolic:60,pa:60,bmc:900",
+    "ki": "pa:60,symbolic:60,bmc:200,ki:900",
+    "pa": "passthrough",
+    "symbolic": "passthrough",
+    "va": "pa:60,va:900",
+    "vaitp": "symbolic:60,pa:60,vaitp:900"
+}

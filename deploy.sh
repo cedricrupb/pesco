@@ -27,6 +27,13 @@ cp LICENSE "$SRC_DIR/LICENSE"
 
 mkdir -p "$SRC_DIR/lib"
 
+echo "Clean CPAchecker"
+rm lib/cpachecker/config/pesco23-*.properties
+rm lib/cpachecker/config/components/pesco23-*.properties
+cp -r "include/cpachecker/config" "lib/cpachecker" || exitmsg "Can copy necessary config files"
+python3 init_configs.py
+
+
 # Deploy CPAchecker
 echo "Copy CPAchecker"
 mkdir -p "$SRC_DIR/lib/cpachecker"
@@ -54,7 +61,10 @@ echo "Copy Python dependencies"
 cp -r lib/python "$SRC_DIR/lib/python"
 
 echo "Copy Resources"
-cp -r resource "$SRC_DIR/resource"
+mkdir -p "$SRC_DIR/resource"
+cp resource/*.jbl "$SRC_DIR/resource"
+cp resource/*.txt "$SRC_DIR/resource"
+cp resource/*.json "$SRC_DIR/resource"
 
 echo "Zip archive"
 pushd "$BUILD_DIR"
