@@ -9,3 +9,4 @@ tqdm==4.64.1
 tree_sitter==0.20.1
 tsbuilder==2.1
 PyYAML==5.4.1
+ortools==9.4.1874
