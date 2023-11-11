@@ -1,0 +1,7 @@
+
+actor_name: esbmc
+toolinfo_module: "https://gitlab.com/sosy-lab/software/benchexec/-/raw/main/benchexec/tools/esbmc.py"
+archives:
+  - version: default
+    location: "https://gitlab.com/sosy-lab/sv-comp/archives-2023/-/raw/main/2023/esbmc-kind.zip"
+options: []

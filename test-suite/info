@@ -1,0 +1,22 @@
+/mnt/ctesters/cache/klee/default/klee/bin/../klee_build/bin/klee --use-forked-solver=false --solver-backend=z3 -max-memory=0 --optimize -output-dir=/mnt/ctesters/test-suite -output-source=false -istats-write-interval=90s -write-xml-tests -tc-orig=benchmark02_linear.c -tc-hash=11e6aefcf5b554bf84de1de6e5afe9fc2dbe3664cbd1342a7cbb6900ce538298 --dump-all-states=false --tc-type=bug --dump-states-on-halt=false -exit-on-error-type=Assert -dump-test-case-type=Assert --search=dfs --search=random-path --search=nurs:covnew --target-assert /tmp/tmp1zo8z6pn/benchmark02_linear.c.bc
+PID: 9084
+Using monotonic steady clock with 1/1000000000s resolution
+Started: 2023-11-06 14:52:17
+BEGIN searcher description
+<InterleavedSearcher> containing 3 searchers:
+DFSSearcher
+RandomPathSearcher
+WeightedRandomSearcher::CoveringNew
+</InterleavedSearcher>
+END searcher description
+Finished: 2023-11-06 14:52:17
+Elapsed: 00:00:00
+KLEE: done: explored paths = 1
+KLEE: done: total queries = 0
+KLEE: done: valid queries = 0
+KLEE: done: invalid queries = 0
+KLEE: done: query cex = 0
+
+KLEE: done: total instructions = 1
+KLEE: done: completed paths = 1
+KLEE: done: generated tests = 0

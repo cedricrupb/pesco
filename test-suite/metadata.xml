@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE test-metadata PUBLIC "+//IDN sosy-lab.org//DTD test-format test-metadata 1.0//EN" "https://sosy-lab.org/test-format/test-metadata-1.0.dtd">
+<test-metadata>
+	<sourcecodelang>C</sourcecodelang>
+	<producer>KLEE 2.2-pre-test-comp</producer>
+	<specification>COVER( init(main()), FQL(COVER EDGES(@CALL(__VERIFIER_error))) )</specification>
+	<programfile>benchmark02_linear.c.c</programfile>
+	<programhash>11e6aefcf5b554bf84de1de6e5afe9fc2dbe3664cbd1342a7cbb6900ce538298</programhash>
+	<entryfunction>main</entryfunction>
+	<architecture>64bit</architecture>
+	<creationtime>2023-11-06T14:52:17Z</creationtime>
+</test-metadata>

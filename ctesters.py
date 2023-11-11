@@ -251,6 +251,7 @@ class TestTool:
             logger.warning("Tester does not support setting limits")
 
         logger.debug("Execute the following command: %s" % " ".join(cmdline))
+        print("Execute the following command: %s" % " ".join(cmdline))
 
         run = self._execute(cmdline, timelimit = rlimits.cputime, memory = rlimits.memory)
         result = self._tool_module_obj.determine_result(run)
@@ -291,13 +292,26 @@ class RLimits:
 # Executor --------------------------------
 
 class Run:
-    def __init__(self, output):
+    def __init__(self, output, was_timeout=False):
         self.output = output
+        self.was_timeout = was_timeout
+
+class CustomList(list):
+    def any_line_contains(self, keyword):
+        for line in self:
+            if keyword in line:
+                return True
+        return False
+
+    #def printCustom(self):
+    #    for line in self:
+    #        print(line)
+
 
 def execute(cmdline):
     p = subprocess.Popen(" ".join(cmdline), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell = True)
     s_out, s_err = p.communicate()
-    lines = []
+    lines = CustomList([])
 
     try:
         for l in s_out.decode('utf-8').splitlines():
@@ -311,6 +325,12 @@ def execute(cmdline):
             lines.append(l)
     except:
         pass
+
+    #print("lines: ")
+    #print(len(lines))
+    #lines.printCustom()
+    if "Timed out" in lines:
+        lines.was_timeout = True
 
     return Run(lines)
 
