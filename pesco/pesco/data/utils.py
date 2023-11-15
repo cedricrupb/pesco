@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import gzip
 import numpy as np
 
 from collections import namedtuple
@@ -171,7 +172,12 @@ def _has_solved(entry):
 def _parse_preprocess_file(label_file):
     content = {}
 
-    with open(label_file, "r") as lines:
+    if label_file.endswith(".jsonl.gz"):
+        open_fn = gzip.open
+    else:
+        open_fn = open
+
+    with open_fn(label_file, "r") as lines:
         for line in lines:
             entry = json.loads(line)
             task  = set(e["task_file"] for e in entry)
