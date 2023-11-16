@@ -130,16 +130,11 @@ class Tester:
             property_file = property_file
         )
 
-        print("Hi, Im before execute")
-
         # Execute tester
         result = execute(cmd)
 
         if self.tool_name == "klee":
-            print("Hi, Im KLEE")
             if "false(unreach-call)" not in result.output: return self._abort(result)
-        else:
-            print("Hi, Im ESBMC")
 
         test_case = find_test_case(resolve_path("lib", self.tool_name))
         if test_case is None: 
@@ -149,7 +144,6 @@ class Tester:
         
         print(result.output)
 
-        print("Hi, Im done!")
 
         if self.tool_name == "esbmc":
             if "VERIFICATION FAILED" in result.output:
