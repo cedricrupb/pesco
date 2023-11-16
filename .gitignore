@@ -134,3 +134,6 @@ output/
 
 lib/cpachecker
 lib/klee
+
+lib/esbmc
+lib/python

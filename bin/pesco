@@ -25,6 +25,7 @@ from pathlib import Path
 CURRENT_PATH = Path(__file__).parent.absolute()
 
 from pesco.tester import klee
+from pesco.tester import esbmc
 from pesco.cpachecker import generate_cpa_config
 from pesco.utils  import execute
 
@@ -257,11 +258,29 @@ def run_pesco(program_path, spec = "", data_model = "LP64", timeout = None, memo
         memory        = memory,
         witness       = True
     )
-
     if klee_result.status == "false": 
-        print("Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
+        print("Klee Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
         return True
-    
+
+    esbmc_result = esbmc(
+        program_path  = program_path,
+        property_file = "properties/sv-comp-reachability.prp",
+        data_model    = data_model,
+        cputime       = 30, 
+        memory        = memory,
+        witness       = True
+    )
+    if esbmc_result.status == "false": 
+        print("Esbmc Verification result: FALSE. Property violation (unreach-call: reach_error();) found by chosen configuration.")
+        return True
+    if esbmc_result.status == "true":
+        print("Esbmc Verification result: TRUE. No property violation found by chosen configuration.")
+        return False
+    else:
+        print("Esbmc Verification result: UNKNOWN. No property violation found by chosen configuration.")
+        return False
+
+
     if predict:
         select_config(program_path, klee_result = klee_result, predict = predict)
         return True

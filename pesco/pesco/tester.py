@@ -5,10 +5,21 @@ from collections import namedtuple
 from .utils import execute, resolve_path
 
 
-def find_test_case():
-    if not os.path.exists("test-suite"): return None
+def find_test_suite(tool_path = None):
+    if os.path.exists("test-suite"): return "test-suite/"
 
-    xml_files = [f for f in glob("test-suite/*.xml") if not f.endswith("metadata.xml")]
+    if tool_path:
+        for path in glob(os.path.join(tool_path, "**", "test-suite"), recursive=True):
+            return path
+    
+    return None
+
+
+def find_test_case(tool_path = None):
+    test_suite_path = find_test_suite(tool_path)
+    if test_suite_path is None: return None
+
+    xml_files = [f for f in glob(os.path.join(test_suite_path, "*.xml")) if not f.endswith("metadata.xml")]
     if len(xml_files) > 1:
         print("Multiple test cases! Which should I pick?")
         return None
@@ -41,7 +52,7 @@ class Tester:
         if memory is not None:
             cmd += ["--memory", str(memory)]
 
-        if property_file is None:
+        if property_file is not None:
             cmd += ["--property_file", property_file]
         
         cmd += ["--tool_directory", resolve_path("lib"), "--enforce_limits"]
@@ -119,16 +130,36 @@ class Tester:
             property_file = property_file
         )
 
+        print("Hi, Im before execute")
+
         # Execute tester
         result = execute(cmd)
 
-        if "false(unreach-call)" not in result.output: return self._abort(result)
+        if self.tool_name == "klee":
+            print("Hi, Im KLEE")
+            if "false(unreach-call)" not in result.output: return self._abort(result)
+        else:
+            print("Hi, Im ESBMC")
 
-        test_case = find_test_case()
-        if test_case is None: return self._abort(result)
+        test_case = find_test_case(resolve_path("lib", self.tool_name))
+        if test_case is None: 
+            if self.tool_name == "klee":
+                return self._abort(result)
         if not self._is_sound(result): return self._abort(result)
         
         print(result.output)
+
+        print("Hi, Im done!")
+
+        if self.tool_name == "esbmc":
+            if "VERIFICATION FAILED" in result.output:
+                return TestResult("false", None, *result[1:])
+            if "VERIFICATION SUCCESSFUL" in result.output:
+                return TestResult("true", None, *result[1:])
+            else:
+                return TestResult("unknown", None, *result[1:])
+            
+            
 
         witness = witness or self.witness
         if not witness : return TestResult("false", test_case, *result[1:])
@@ -147,3 +178,4 @@ class Tester:
 
 
 klee = Tester("klee", version = "s3")
+esbmc = Tester("esbmc", version = "default")
